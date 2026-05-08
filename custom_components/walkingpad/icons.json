@@ -1,0 +1,18 @@
+{
+  "entity": {
+    "sensor": {
+      "speed": {
+        "default": "mdi:speedometer"
+      },
+      "total_steps": {
+        "default": "mdi:walk"
+      },
+      "total_time": {
+        "default": "mdi:timer-outline"
+      },
+      "total_distance": {
+        "default": "mdi:map-marker-distance"
+      }
+    }
+  }
+}

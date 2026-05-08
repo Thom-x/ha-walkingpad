@@ -49,6 +49,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._connected = False
         self._closing = False
         self._last_attempt_ts: float = 0.0
+        self._first_advertisement_logged = False
 
         # Latest reported speed (km/h)
         self.speed_kmh: float = 0.0
@@ -86,7 +87,15 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Seed coordinator data so sensors render before any poll runs.
         self.async_set_updated_data(self._build_data())
 
-        if bluetooth.async_address_present(self.hass, self.address, connectable=True):
+        present = bluetooth.async_address_present(
+            self.hass, self.address, connectable=True
+        )
+        _LOGGER.info(
+            "WalkingPad %s: BT callback registered. Device currently visible to HA: %s",
+            self.address,
+            present,
+        )
+        if present:
             self.hass.async_create_task(self._async_connect())
 
     async def async_shutdown(self) -> None:
@@ -103,6 +112,14 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _on_advertisement(
         self, service_info: BluetoothServiceInfoBleak, change: BluetoothChange
     ) -> None:
+        if not self._first_advertisement_logged:
+            _LOGGER.info(
+                "WalkingPad %s: first advertisement received (name=%r, rssi=%s)",
+                self.address,
+                service_info.name,
+                service_info.rssi,
+            )
+            self._first_advertisement_logged = True
         if self._connected or self._closing:
             return
         self.hass.async_create_task(self._async_connect())

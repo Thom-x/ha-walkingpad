@@ -45,7 +45,6 @@ SENSORS: tuple[WalkingPadSensorDescription, ...] = (
         data_key="total_steps",
         native_unit_of_measurement="steps",
         state_class=SensorStateClass.TOTAL_INCREASING,
-        icon="mdi:walk",
     ),
     WalkingPadSensorDescription(
         key="total_time",
