@@ -30,7 +30,6 @@ class WalkingPadSensorDescription(SensorEntityDescription):
 
 
 def _steps(key: str, period: str = "") -> WalkingPadSensorDescription:
-    suffix = f"_{period}" if period else ""
     state_class = (
         SensorStateClass.TOTAL if period else SensorStateClass.TOTAL_INCREASING
     )
@@ -38,7 +37,6 @@ def _steps(key: str, period: str = "") -> WalkingPadSensorDescription:
         key=key,
         translation_key=key,
         data_key=f"{period or 'total'}_steps",
-        native_unit_of_measurement="steps",
         state_class=state_class,
         period=period,
     )
