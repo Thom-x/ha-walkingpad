@@ -27,7 +27,13 @@
       "speed": { "name": "Vitesse" },
       "total_steps": { "name": "Pas cumulés" },
       "total_time": { "name": "Temps cumulé" },
-      "total_distance": { "name": "Distance cumulée" }
+      "total_distance": { "name": "Distance cumulée" },
+      "daily_steps": { "name": "Pas du jour" },
+      "daily_time": { "name": "Temps du jour" },
+      "daily_distance": { "name": "Distance du jour" },
+      "monthly_steps": { "name": "Pas du mois" },
+      "monthly_time": { "name": "Temps du mois" },
+      "monthly_distance": { "name": "Distance du mois" }
     }
   }
 }

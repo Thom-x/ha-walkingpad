@@ -1,13 +1,13 @@
 {
   "domain": "walkingpad",
   "name": "WalkingPad",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "codeowners": [],
   "config_flow": true,
   "iot_class": "local_push",
   "dependencies": ["bluetooth"],
-  "documentation": "https://github.com/your-user/ha-walkingpad",
-  "issue_tracker": "https://github.com/your-user/ha-walkingpad/issues",
+  "documentation": "https://github.com/Thom-x/ha-walkingpad",
+  "issue_tracker": "https://github.com/Thom-x/ha-walkingpad/issues",
   "requirements": ["ph4-walkingpad==1.0.2"],
   "bluetooth": [
     { "local_name": "WalkingPad*" },

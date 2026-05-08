@@ -27,7 +27,13 @@
       "speed": { "name": "Speed" },
       "total_steps": { "name": "Total steps" },
       "total_time": { "name": "Total time" },
-      "total_distance": { "name": "Total distance" }
+      "total_distance": { "name": "Total distance" },
+      "daily_steps": { "name": "Steps today" },
+      "daily_time": { "name": "Time today" },
+      "daily_distance": { "name": "Distance today" },
+      "monthly_steps": { "name": "Steps this month" },
+      "monthly_time": { "name": "Time this month" },
+      "monthly_distance": { "name": "Distance this month" }
     }
   }
 }

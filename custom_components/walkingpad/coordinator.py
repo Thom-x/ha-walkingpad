@@ -1,10 +1,10 @@
-"""Coordinator: BLE connection lifecycle, polling, cumulative accumulation."""
+"""Coordinator: BLE connection lifecycle, polling, cumulative + periodic accumulation."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import time as _time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components import bluetooth
@@ -15,8 +15,10 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from ph4_walkingpad.pad import Controller, WalkingPadCurStatus
 
@@ -32,7 +34,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Owns the BLE Controller and exposes polled + cumulative data."""
+    """Owns the BLE Controller and exposes polled + cumulative + daily + monthly data."""
 
     def __init__(self, hass: HomeAssistant, address: str, entry_id: str) -> None:
         super().__init__(
@@ -54,10 +56,22 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Latest reported speed (km/h)
         self.speed_kmh: float = 0.0
 
-        # Cumulative totals (persisted)
+        # Cumulative totals (lifetime, persisted)
         self.total_steps: int = 0
         self.total_time_s: int = 0
         self.total_dist_cm: int = 0
+
+        # Daily counters (reset at local midnight, persisted)
+        self.daily_steps: int = 0
+        self.daily_time_s: int = 0
+        self.daily_dist_cm: int = 0
+        self.daily_last_reset: datetime | None = None
+
+        # Monthly counters (reset on the 1st at local midnight, persisted)
+        self.monthly_steps: int = 0
+        self.monthly_time_s: int = 0
+        self.monthly_dist_cm: int = 0
+        self.monthly_last_reset: datetime | None = None
 
         # Last seen session values (for delta computation)
         self._last_steps: int = 0
@@ -68,6 +82,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}_{entry_id}"
         )
         self._unsub_bt = None
+        self._unsub_midnight = None
 
     @property
     def connected(self) -> bool:
@@ -76,6 +91,13 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_setup(self) -> None:
         """Load persisted totals, register BT callback, attempt initial connect."""
         await self._async_load_totals()
+
+        # Catch up on any missed daily/monthly resets while HA was off.
+        self._maybe_reset_periodic(dt_util.now())
+
+        self._unsub_midnight = async_track_time_change(
+            self.hass, self._on_midnight, hour=0, minute=0, second=0
+        )
 
         self._unsub_bt = bluetooth.async_register_callback(
             self.hass,
@@ -103,6 +125,9 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_bt is not None:
             self._unsub_bt()
             self._unsub_bt = None
+        if self._unsub_midnight is not None:
+            self._unsub_midnight()
+            self._unsub_midnight = None
         await self._async_disconnect()
         await self._async_save_totals()
 
@@ -190,9 +215,22 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         d_time, self._last_time = self._delta(status.time, self._last_time)
         d_dist, self._last_dist = self._delta(status.dist, self._last_dist)
 
+        # Defensive: if a midnight reset was missed (e.g. HA was sleeping),
+        # catch up before applying deltas to the daily/monthly buckets.
+        self._maybe_reset_periodic(dt_util.now())
+
         self.total_steps += d_steps
         self.total_time_s += d_time
         self.total_dist_cm += d_dist
+
+        self.daily_steps += d_steps
+        self.daily_time_s += d_time
+        self.daily_dist_cm += d_dist
+
+        self.monthly_steps += d_steps
+        self.monthly_time_s += d_time
+        self.monthly_dist_cm += d_dist
+
         self.speed_kmh = status.speed / 10.0
 
         if d_steps or d_time or d_dist:
@@ -218,6 +256,14 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "total_steps": self.total_steps,
             "total_time_s": self.total_time_s,
             "total_dist_km": self.total_dist_cm / 100_000.0,
+            "daily_steps": self.daily_steps,
+            "daily_time_s": self.daily_time_s,
+            "daily_dist_km": self.daily_dist_cm / 100_000.0,
+            "daily_last_reset": self.daily_last_reset,
+            "monthly_steps": self.monthly_steps,
+            "monthly_time_s": self.monthly_time_s,
+            "monthly_dist_km": self.monthly_dist_cm / 100_000.0,
+            "monthly_last_reset": self.monthly_last_reset,
         }
 
     # ---- Polling ----------------------------------------------------------
@@ -235,6 +281,37 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
         return self._build_data()
 
+    # ---- Periodic resets --------------------------------------------------
+
+    @callback
+    def _on_midnight(self, _now: datetime) -> None:
+        """Fired by HA at local 00:00:00 every day."""
+        self._maybe_reset_periodic(dt_util.now())
+        self.hass.async_create_task(self._async_save_totals())
+        self.async_set_updated_data(self._build_data())
+
+    def _maybe_reset_periodic(self, now: datetime) -> None:
+        """Reset daily/monthly buckets if we've crossed their boundary."""
+        if self.daily_last_reset is None or self.daily_last_reset.date() != now.date():
+            self.daily_steps = 0
+            self.daily_time_s = 0
+            self.daily_dist_cm = 0
+            self.daily_last_reset = now.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+
+        if (
+            self.monthly_last_reset is None
+            or self.monthly_last_reset.year != now.year
+            or self.monthly_last_reset.month != now.month
+        ):
+            self.monthly_steps = 0
+            self.monthly_time_s = 0
+            self.monthly_dist_cm = 0
+            self.monthly_last_reset = now.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+
     # ---- Persistence ------------------------------------------------------
 
     async def _async_load_totals(self) -> None:
@@ -243,11 +320,39 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.total_time_s = int(data.get("total_time_s", 0))
         self.total_dist_cm = int(data.get("total_dist_cm", 0))
 
+        self.daily_steps = int(data.get("daily_steps", 0))
+        self.daily_time_s = int(data.get("daily_time_s", 0))
+        self.daily_dist_cm = int(data.get("daily_dist_cm", 0))
+        self.daily_last_reset = _parse_dt(data.get("daily_last_reset"))
+
+        self.monthly_steps = int(data.get("monthly_steps", 0))
+        self.monthly_time_s = int(data.get("monthly_time_s", 0))
+        self.monthly_dist_cm = int(data.get("monthly_dist_cm", 0))
+        self.monthly_last_reset = _parse_dt(data.get("monthly_last_reset"))
+
     async def _async_save_totals(self) -> None:
         await self._store.async_save(
             {
                 "total_steps": self.total_steps,
                 "total_time_s": self.total_time_s,
                 "total_dist_cm": self.total_dist_cm,
+                "daily_steps": self.daily_steps,
+                "daily_time_s": self.daily_time_s,
+                "daily_dist_cm": self.daily_dist_cm,
+                "daily_last_reset": self.daily_last_reset.isoformat()
+                if self.daily_last_reset
+                else None,
+                "monthly_steps": self.monthly_steps,
+                "monthly_time_s": self.monthly_time_s,
+                "monthly_dist_cm": self.monthly_dist_cm,
+                "monthly_last_reset": self.monthly_last_reset.isoformat()
+                if self.monthly_last_reset
+                else None,
             }
         )
+
+
+def _parse_dt(raw: Any) -> datetime | None:
+    if not raw:
+        return None
+    return dt_util.parse_datetime(raw)

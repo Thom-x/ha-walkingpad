@@ -1,18 +1,16 @@
 {
   "entity": {
     "sensor": {
-      "speed": {
-        "default": "mdi:speedometer"
-      },
-      "total_steps": {
-        "default": "mdi:walk"
-      },
-      "total_time": {
-        "default": "mdi:timer-outline"
-      },
-      "total_distance": {
-        "default": "mdi:map-marker-distance"
-      }
+      "speed": { "default": "mdi:speedometer" },
+      "total_steps": { "default": "mdi:walk" },
+      "total_time": { "default": "mdi:timer-outline" },
+      "total_distance": { "default": "mdi:map-marker-distance" },
+      "daily_steps": { "default": "mdi:walk" },
+      "daily_time": { "default": "mdi:timer-outline" },
+      "daily_distance": { "default": "mdi:map-marker-distance" },
+      "monthly_steps": { "default": "mdi:walk" },
+      "monthly_time": { "default": "mdi:timer-outline" },
+      "monthly_distance": { "default": "mdi:map-marker-distance" }
     }
   }
 }
