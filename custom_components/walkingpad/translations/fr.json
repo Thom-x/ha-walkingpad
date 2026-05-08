@@ -1,0 +1,33 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "WalkingPad",
+        "description": "Entrez l'adresse Bluetooth (MAC) de votre WalkingPad (format : AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "address": "Adresse Bluetooth"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "WalkingPad détecté",
+        "description": "Configurer {name} ({address}) ?"
+      }
+    },
+    "abort": {
+      "already_configured": "Ce WalkingPad est déjà configuré.",
+      "no_devices_found": "Aucun WalkingPad trouvé."
+    },
+    "error": {
+      "invalid_address": "Adresse Bluetooth invalide. Utilisez le format AA:BB:CC:DD:EE:FF."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "speed": { "name": "Vitesse" },
+      "total_steps": { "name": "Pas cumulés" },
+      "total_time": { "name": "Temps cumulé" },
+      "total_distance": { "name": "Distance cumulée" }
+    }
+  }
+}
