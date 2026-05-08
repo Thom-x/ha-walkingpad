@@ -296,7 +296,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.daily_last_reset is None or self.daily_last_reset.date() != now.date():
             self.daily_steps = 0
             self.daily_time_s = 0
-            self.daily_dist_cm = 0
+            self.daily_dist_dam = 0
             self.daily_last_reset = now.replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
@@ -308,7 +308,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             self.monthly_steps = 0
             self.monthly_time_s = 0
-            self.monthly_dist_cm = 0
+            self.monthly_dist_dam = 0
             self.monthly_last_reset = now.replace(
                 day=1, hour=0, minute=0, second=0, microsecond=0
             )
