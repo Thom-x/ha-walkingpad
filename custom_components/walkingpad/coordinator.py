@@ -56,21 +56,22 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Latest reported speed (km/h)
         self.speed_kmh: float = 0.0
 
-        # Cumulative totals (lifetime, persisted)
+        # Cumulative totals (lifetime, persisted).
+        # Note: the pad reports distance in 10-meter units (1 unit = 0.01 km).
         self.total_steps: int = 0
         self.total_time_s: int = 0
-        self.total_dist_cm: int = 0
+        self.total_dist_dam: int = 0
 
         # Daily counters (reset at local midnight, persisted)
         self.daily_steps: int = 0
         self.daily_time_s: int = 0
-        self.daily_dist_cm: int = 0
+        self.daily_dist_dam: int = 0
         self.daily_last_reset: datetime | None = None
 
         # Monthly counters (reset on the 1st at local midnight, persisted)
         self.monthly_steps: int = 0
         self.monthly_time_s: int = 0
-        self.monthly_dist_cm: int = 0
+        self.monthly_dist_dam: int = 0
         self.monthly_last_reset: datetime | None = None
 
         # Last seen session values (for delta computation)
@@ -221,15 +222,15 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.total_steps += d_steps
         self.total_time_s += d_time
-        self.total_dist_cm += d_dist
+        self.total_dist_dam += d_dist
 
         self.daily_steps += d_steps
         self.daily_time_s += d_time
-        self.daily_dist_cm += d_dist
+        self.daily_dist_dam += d_dist
 
         self.monthly_steps += d_steps
         self.monthly_time_s += d_time
-        self.monthly_dist_cm += d_dist
+        self.monthly_dist_dam += d_dist
 
         self.speed_kmh = status.speed / 10.0
 
@@ -255,14 +256,14 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "speed": self.speed_kmh,
             "total_steps": self.total_steps,
             "total_time_s": self.total_time_s,
-            "total_dist_km": self.total_dist_cm / 100_000.0,
+            "total_dist_km": self.total_dist_dam / 100.0,
             "daily_steps": self.daily_steps,
             "daily_time_s": self.daily_time_s,
-            "daily_dist_km": self.daily_dist_cm / 100_000.0,
+            "daily_dist_km": self.daily_dist_dam / 100.0,
             "daily_last_reset": self.daily_last_reset,
             "monthly_steps": self.monthly_steps,
             "monthly_time_s": self.monthly_time_s,
-            "monthly_dist_km": self.monthly_dist_cm / 100_000.0,
+            "monthly_dist_km": self.monthly_dist_dam / 100.0,
             "monthly_last_reset": self.monthly_last_reset,
         }
 
