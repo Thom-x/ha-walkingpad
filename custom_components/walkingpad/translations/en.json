@@ -25,13 +25,13 @@
   "entity": {
     "sensor": {
       "speed": { "name": "Speed" },
-      "total_steps": { "name": "Total steps" },
+      "total_steps": { "name": "Total steps", "unit_of_measurement": "steps" },
       "total_time": { "name": "Total time" },
       "total_distance": { "name": "Total distance" },
-      "daily_steps": { "name": "Steps today" },
+      "daily_steps": { "name": "Steps today", "unit_of_measurement": "steps" },
       "daily_time": { "name": "Time today" },
       "daily_distance": { "name": "Distance today" },
-      "monthly_steps": { "name": "Steps this month" },
+      "monthly_steps": { "name": "Steps this month", "unit_of_measurement": "steps" },
       "monthly_time": { "name": "Time this month" },
       "monthly_distance": { "name": "Distance this month" }
     }

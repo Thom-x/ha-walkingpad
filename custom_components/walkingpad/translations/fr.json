@@ -25,13 +25,13 @@
   "entity": {
     "sensor": {
       "speed": { "name": "Vitesse" },
-      "total_steps": { "name": "Pas cumulés" },
+      "total_steps": { "name": "Pas cumulés", "unit_of_measurement": "pas" },
       "total_time": { "name": "Temps cumulé" },
       "total_distance": { "name": "Distance cumulée" },
-      "daily_steps": { "name": "Pas du jour" },
+      "daily_steps": { "name": "Pas du jour", "unit_of_measurement": "pas" },
       "daily_time": { "name": "Temps du jour" },
       "daily_distance": { "name": "Distance du jour" },
-      "monthly_steps": { "name": "Pas du mois" },
+      "monthly_steps": { "name": "Pas du mois", "unit_of_measurement": "pas" },
       "monthly_time": { "name": "Temps du mois" },
       "monthly_distance": { "name": "Distance du mois" }
     }
