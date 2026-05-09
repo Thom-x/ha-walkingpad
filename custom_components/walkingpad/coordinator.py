@@ -20,6 +20,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from bleak_retry_connector import BleakClient, establish_connection
 from ph4_walkingpad.pad import Controller, WalkingPadCurStatus
 
 from .const import (
@@ -29,6 +30,8 @@ from .const import (
     STATUS_TIMEOUT_SECONDS,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
+    WALKINGPAD_NOTIFY_UUID,
+    WALKINGPAD_WRITE_UUID,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -200,14 +203,54 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ctrl = Controller()
             ctrl.handler_cur_status = self._on_status
 
+            # Use HA's slot-aware connection helper instead of letting the
+            # ph4_walkingpad library create a raw BleakClient. This integrates
+            # with HA's BT slot manager, retries on transient failures, and
+            # avoids leaking slots after the pad powers off.
             try:
-                await ctrl.run(ble_device)
+                client = await establish_connection(
+                    BleakClient,
+                    ble_device,
+                    f"WalkingPad {self.address}",
+                    disconnected_callback=self._on_ble_disconnect,
+                    max_attempts=3,
+                )
             except Exception as err:  # noqa: BLE001 — bleak raises a wide variety
                 _LOGGER.warning(
                     "Connection to WalkingPad %s failed: %s", self.address, err
                 )
+                return
+
+            ctrl.client = client
+
+            # Locate the pad's notify (fe01) and write (fe02) characteristics.
+            for service in client.services:
+                for char in service.characteristics:
+                    uuid = str(char.uuid).lower()
+                    if uuid == WALKINGPAD_NOTIFY_UUID:
+                        ctrl.char_fe01 = char
+                    elif uuid == WALKINGPAD_WRITE_UUID:
+                        ctrl.char_fe02 = char
+
+            if ctrl.char_fe01 is None or ctrl.char_fe02 is None:
+                _LOGGER.warning(
+                    "WalkingPad %s: required GATT characteristics not found",
+                    self.address,
+                )
                 try:
-                    await ctrl.disconnect()
+                    await client.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+                return
+
+            try:
+                await client.start_notify(ctrl.char_fe01, ctrl.notif_handler)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "WalkingPad %s: start_notify failed: %s", self.address, err
+                )
+                try:
+                    await client.disconnect()
                 except Exception:  # noqa: BLE001
                     pass
                 return
@@ -221,15 +264,6 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Seed the watchdog so we don't immediately declare a fresh
             # connection dead.
             self._last_status_ts = _time.monotonic()
-
-            # Attach a disconnect callback so we react immediately when the
-            # pad powers off, instead of only noticing on the next failed poll.
-            try:
-                ctrl.client.set_disconnected_callback(self._on_ble_disconnect)
-            except Exception:  # noqa: BLE001 — older/newer bleak APIs differ
-                _LOGGER.debug(
-                    "set_disconnected_callback unavailable; relying on poll checks"
-                )
 
             _LOGGER.info("Connected to WalkingPad %s", self.address)
             self.async_set_updated_data(self._build_data())
@@ -250,16 +284,16 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_cleanup_controller(self) -> None:
         if self._controller is not None:
             try:
-                await self._controller.disconnect()
-            except Exception:  # noqa: BLE001
+                await asyncio.wait_for(self._controller.disconnect(), timeout=5.0)
+            except (Exception, asyncio.TimeoutError):  # noqa: BLE001
                 pass
             self._controller = None
 
     async def _async_disconnect(self) -> None:
         if self._controller is not None:
             try:
-                await self._controller.disconnect()
-            except Exception:  # noqa: BLE001
+                await asyncio.wait_for(self._controller.disconnect(), timeout=5.0)
+            except (Exception, asyncio.TimeoutError):  # noqa: BLE001
                 pass
             self._controller = None
         if self._connected:

@@ -8,7 +8,7 @@
   "dependencies": ["bluetooth"],
   "documentation": "https://github.com/Thom-x/ha-walkingpad",
   "issue_tracker": "https://github.com/Thom-x/ha-walkingpad/issues",
-  "requirements": ["ph4-walkingpad==1.0.2"],
+  "requirements": ["ph4-walkingpad==1.0.2", "bleak-retry-connector>=4.6.0"],
   "bluetooth": [
     { "local_name": "WalkingPad*" },
     { "local_name": "KS-ST*" }
