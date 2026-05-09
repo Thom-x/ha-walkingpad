@@ -15,7 +15,7 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -91,6 +91,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_bt = None
         self._unsub_midnight = None
+        self._unsub_reconnect_timer = None
 
     @property
     def connected(self) -> bool:
@@ -136,6 +137,7 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_midnight is not None:
             self._unsub_midnight()
             self._unsub_midnight = None
+        self._cancel_reconnect_timer()
         await self._async_disconnect()
         await self._async_save_totals()
 
@@ -265,6 +267,9 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # connection dead.
             self._last_status_ts = _time.monotonic()
 
+            # We're connected; stop the periodic reconnect probe.
+            self._cancel_reconnect_timer()
+
             _LOGGER.info("Connected to WalkingPad %s", self.address)
             self.async_set_updated_data(self._build_data())
 
@@ -278,8 +283,10 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.speed_kmh = 0.0
         # Allow an immediate reconnect on the next advertisement.
         self._last_attempt_ts = 0.0
+        self._first_advertisement_logged = False
         self.async_set_updated_data(self._build_data())
         self.hass.async_create_task(self._async_cleanup_controller())
+        self._schedule_reconnect_timer()
 
     async def _async_cleanup_controller(self) -> None:
         if self._controller is not None:
@@ -308,6 +315,42 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.address,
             )
             self.async_set_updated_data(self._build_data())
+        # Whether or not we changed state, make sure a reconnect probe is armed
+        # so we don't depend solely on the BT advertisement callback.
+        self._schedule_reconnect_timer()
+
+    # ---- Periodic reconnect probe -----------------------------------------
+
+    def _schedule_reconnect_timer(self) -> None:
+        if self._unsub_reconnect_timer is not None or self._closing:
+            return
+        self._unsub_reconnect_timer = async_track_time_interval(
+            self.hass,
+            self._async_reconnect_tick,
+            timedelta(seconds=30),
+        )
+
+    def _cancel_reconnect_timer(self) -> None:
+        if self._unsub_reconnect_timer is not None:
+            self._unsub_reconnect_timer()
+            self._unsub_reconnect_timer = None
+
+    async def _async_reconnect_tick(self, _now: datetime) -> None:
+        if self._connected or self._closing:
+            self._cancel_reconnect_timer()
+            return
+        _LOGGER.debug(
+            "WalkingPad %s: periodic reconnect probe", self.address
+        )
+        # Nudge HA's BT integration in case it's holding a stale cache for
+        # this address (no fresh advertisement since the disconnect).
+        rediscover = getattr(bluetooth, "async_rediscover_address", None)
+        if callable(rediscover):
+            try:
+                rediscover(self.hass, self.address)
+            except Exception:  # noqa: BLE001
+                pass
+        await self._async_connect()
 
     # ---- Status handling --------------------------------------------------
 
