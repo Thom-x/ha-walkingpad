@@ -140,12 +140,20 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         if not self._first_advertisement_logged:
             _LOGGER.info(
-                "WalkingPad %s: first advertisement received (name=%r, rssi=%s)",
+                "WalkingPad %s: advertisement received (name=%r, rssi=%s, connected=%s)",
                 self.address,
                 service_info.name,
                 service_info.rssi,
+                self._connected,
             )
             self._first_advertisement_logged = True
+        else:
+            _LOGGER.debug(
+                "WalkingPad %s: advertisement (rssi=%s, connected=%s)",
+                self.address,
+                service_info.rssi,
+                self._connected,
+            )
         if self._connected or self._closing:
             return
         self.hass.async_create_task(self._async_connect())
@@ -158,6 +166,11 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         now = _time.monotonic()
         if now - self._last_attempt_ts < RECONNECT_BACKOFF_SECONDS:
+            _LOGGER.debug(
+                "WalkingPad %s: connect attempt skipped (backoff %.1fs remaining)",
+                self.address,
+                RECONNECT_BACKOFF_SECONDS - (now - self._last_attempt_ts),
+            )
             return
         self._last_attempt_ts = now
 
@@ -169,8 +182,16 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass, self.address, connectable=True
             )
             if ble_device is None:
-                _LOGGER.debug("Device %s not currently visible", self.address)
+                _LOGGER.info(
+                    "WalkingPad %s: BLEDevice not available from HA cache yet",
+                    self.address,
+                )
                 return
+            _LOGGER.info(
+                "WalkingPad %s: attempting connection (device=%r)",
+                self.address,
+                ble_device,
+            )
 
             ctrl = Controller()
             ctrl.handler_cur_status = self._on_status
@@ -239,6 +260,12 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.speed_kmh = 0.0
             # Allow an immediate reconnect on the next advertisement.
             self._last_attempt_ts = 0.0
+            # Reset so the next reappearance is logged at INFO level.
+            self._first_advertisement_logged = False
+            _LOGGER.info(
+                "WalkingPad %s: marked disconnected, awaiting next advertisement",
+                self.address,
+            )
             self.async_set_updated_data(self._build_data())
 
     # ---- Status handling --------------------------------------------------
