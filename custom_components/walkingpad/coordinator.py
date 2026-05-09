@@ -193,8 +193,39 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_steps = 0
             self._last_time = 0
             self._last_dist = 0
+
+            # Attach a disconnect callback so we react immediately when the
+            # pad powers off, instead of only noticing on the next failed poll.
+            try:
+                ctrl.client.set_disconnected_callback(self._on_ble_disconnect)
+            except Exception:  # noqa: BLE001 — older/newer bleak APIs differ
+                _LOGGER.debug(
+                    "set_disconnected_callback unavailable; relying on poll checks"
+                )
+
             _LOGGER.info("Connected to WalkingPad %s", self.address)
             self.async_set_updated_data(self._build_data())
+
+    @callback
+    def _on_ble_disconnect(self, _client: Any) -> None:
+        """Called by bleak when the BLE link drops."""
+        if not self._connected:
+            return
+        _LOGGER.info("WalkingPad %s: BLE disconnected", self.address)
+        self._connected = False
+        self.speed_kmh = 0.0
+        # Allow an immediate reconnect on the next advertisement.
+        self._last_attempt_ts = 0.0
+        self.async_set_updated_data(self._build_data())
+        self.hass.async_create_task(self._async_cleanup_controller())
+
+    async def _async_cleanup_controller(self) -> None:
+        if self._controller is not None:
+            try:
+                await self._controller.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self._controller = None
 
     async def _async_disconnect(self) -> None:
         if self._controller is not None:
@@ -206,6 +237,8 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._connected:
             self._connected = False
             self.speed_kmh = 0.0
+            # Allow an immediate reconnect on the next advertisement.
+            self._last_attempt_ts = 0.0
             self.async_set_updated_data(self._build_data())
 
     # ---- Status handling --------------------------------------------------
@@ -272,6 +305,13 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         if not self._connected or self._controller is None:
             return self._build_data()
+
+        client = self._controller.client
+        if client is None or not client.is_connected:
+            _LOGGER.info("WalkingPad %s: BLE link is down, marking disconnected", self.address)
+            await self._async_disconnect()
+            return self._build_data()
+
         try:
             await self._controller.ask_stats()
         except Exception as err:  # noqa: BLE001
@@ -319,16 +359,16 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = await self._store.async_load() or {}
         self.total_steps = int(data.get("total_steps", 0))
         self.total_time_s = int(data.get("total_time_s", 0))
-        self.total_dist_cm = int(data.get("total_dist_cm", 0))
+        self.total_dist_dam = int(data.get("total_dist_dam", 0))
 
         self.daily_steps = int(data.get("daily_steps", 0))
         self.daily_time_s = int(data.get("daily_time_s", 0))
-        self.daily_dist_cm = int(data.get("daily_dist_cm", 0))
+        self.daily_dist_dam = int(data.get("daily_dist_dam", 0))
         self.daily_last_reset = _parse_dt(data.get("daily_last_reset"))
 
         self.monthly_steps = int(data.get("monthly_steps", 0))
         self.monthly_time_s = int(data.get("monthly_time_s", 0))
-        self.monthly_dist_cm = int(data.get("monthly_dist_cm", 0))
+        self.monthly_dist_dam = int(data.get("monthly_dist_dam", 0))
         self.monthly_last_reset = _parse_dt(data.get("monthly_last_reset"))
 
     async def _async_save_totals(self) -> None:
@@ -336,16 +376,16 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {
                 "total_steps": self.total_steps,
                 "total_time_s": self.total_time_s,
-                "total_dist_cm": self.total_dist_cm,
+                "total_dist_dam": self.total_dist_dam,
                 "daily_steps": self.daily_steps,
                 "daily_time_s": self.daily_time_s,
-                "daily_dist_cm": self.daily_dist_cm,
+                "daily_dist_dam": self.daily_dist_dam,
                 "daily_last_reset": self.daily_last_reset.isoformat()
                 if self.daily_last_reset
                 else None,
                 "monthly_steps": self.monthly_steps,
                 "monthly_time_s": self.monthly_time_s,
-                "monthly_dist_cm": self.monthly_dist_cm,
+                "monthly_dist_dam": self.monthly_dist_dam,
                 "monthly_last_reset": self.monthly_last_reset.isoformat()
                 if self.monthly_last_reset
                 else None,
