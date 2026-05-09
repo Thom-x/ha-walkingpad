@@ -26,6 +26,7 @@ from .const import (
     DOMAIN,
     POLL_INTERVAL_SECONDS,
     RECONNECT_BACKOFF_SECONDS,
+    STATUS_TIMEOUT_SECONDS,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
 )
@@ -52,6 +53,9 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._closing = False
         self._last_attempt_ts: float = 0.0
         self._first_advertisement_logged = False
+        # Last time the pad sent us a status notification (monotonic).
+        # Used as a watchdog to detect silent BLE link drops.
+        self._last_status_ts: float = 0.0
 
         # Latest reported speed (km/h)
         self.speed_kmh: float = 0.0
@@ -214,6 +218,9 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_steps = 0
             self._last_time = 0
             self._last_dist = 0
+            # Seed the watchdog so we don't immediately declare a fresh
+            # connection dead.
+            self._last_status_ts = _time.monotonic()
 
             # Attach a disconnect callback so we react immediately when the
             # pad powers off, instead of only noticing on the next failed poll.
@@ -272,6 +279,8 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _on_status(self, sender: Any, status: WalkingPadCurStatus) -> None:
+        self._last_status_ts = _time.monotonic()
+
         d_steps, self._last_steps = self._delta(status.steps, self._last_steps)
         d_time, self._last_time = self._delta(status.time, self._last_time)
         d_dist, self._last_dist = self._delta(status.dist, self._last_dist)
@@ -335,7 +344,22 @@ class WalkingPadCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         client = self._controller.client
         if client is None or not client.is_connected:
-            _LOGGER.info("WalkingPad %s: BLE link is down, marking disconnected", self.address)
+            _LOGGER.info(
+                "WalkingPad %s: BLE link is down, marking disconnected", self.address
+            )
+            await self._async_disconnect()
+            return self._build_data()
+
+        # Watchdog: BlueZ may keep is_connected=True for the full link
+        # supervision timeout (5-20s) after the peer goes away. If we haven't
+        # received any status notification for a while, treat the link as dead.
+        silence = _time.monotonic() - self._last_status_ts
+        if silence > STATUS_TIMEOUT_SECONDS:
+            _LOGGER.info(
+                "WalkingPad %s: no status received in %.1fs, treating as disconnected",
+                self.address,
+                silence,
+            )
             await self._async_disconnect()
             return self._build_data()
 
